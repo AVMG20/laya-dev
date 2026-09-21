@@ -5,8 +5,8 @@ services:
     environment:
       # Required: the API is public once deployed. Clients send `Authorization: Bearer <key>`.
       LAYA_API_KEY: ${LAYA_API_KEY:?Set LAYA_API_KEY}
-      # english (default), multilingual or typed-decisions
-      LAYA_MODEL: ${LAYA_MODEL:-english}
+      # multilingual (default), english or typed-decisions
+      LAYA_MODEL: ${LAYA_MODEL:-multilingual}
     volumes:
       - laya-models:/data/huggingface
     # Coolify's proxy routes the domain to this port; nothing is published on the host.

@@ -2,7 +2,7 @@
 
 `laya_server.py` runs [Laya](https://github.com/NandhaKishorM/laya) as a local HTTP API. Its request format is the same as TypeSafe's Jev API (`POST /v1/systemone`), so code written for Jev can call it.
 
-It serves one checkpoint, the English model by default. The first start downloads about 850 MB of model files, pinned to an audited commit, into `~/.cache/huggingface`.
+It serves one checkpoint, the multilingual model by default (100+ languages). The first start downloads about 680 MB of model files (850 MB for `--model english`), pinned to an audited commit, into `~/.cache/huggingface`.
 
 ## Setup
 
@@ -26,7 +26,7 @@ It listens on `http://127.0.0.1:8000`. Loading the model takes a few seconds; th
 |---|---|---|---|
 | `--host` | `LAYA_HOST` | `127.0.0.1` | Address to bind. Use `0.0.0.0` to accept connections from your network. |
 | `--port` | `LAYA_PORT` | `8000` | Port to listen on. |
-| `--model` | `LAYA_MODEL` | `english` | `english`, `multilingual` or `typed-decisions`. |
+| `--model` | `LAYA_MODEL` | `multilingual` | `multilingual`, `english` or `typed-decisions`. |
 | `--device` | `LAYA_DEVICE` | auto | `mps` (Apple GPU), `cuda` or `cpu`. |
 | `--api-key` | `LAYA_API_KEY` | none | When set, every request except `/health` needs `Authorization: Bearer <key>`. |
 
@@ -83,7 +83,7 @@ The response has this shape (the numbers are illustrative):
 
 ```json
 {
-  "model": "laya-english",
+  "model": "laya-multilingual",
   "answers": {
     "department": {
       "type": "choice",
@@ -122,7 +122,7 @@ A question can carry its own `state`, which replaces the shared one for that que
 }
 ```
 
-Laya reads the state once for every question, and cuts it off at 512 tokens on the English model. Several questions over one long state are therefore slow, and the end of the state is silently dropped. Measured on an M-series Mac, six questions over a long state took 616 ms; the same number of questions with short states of their own took about 85 ms. The answers were also more accurate, because each question sees only the facts it judges.
+Laya reads the state once for every question, and cuts it off at 1,024 tokens on the multilingual model (512 on the English one). Several questions over one long state are therefore slow, and the end of the state is silently dropped. Measured on an M-series Mac, six questions over a long state took 616 ms; the same number of questions with short states of their own took about 85 ms. The answers were also more accurate, because each question sees only the facts it judges.
 
 ### Presets
 
@@ -179,8 +179,8 @@ export TYPESAFE_API_KEY=local   # the SDK requires a value; use your --api-key i
 
 ## Limits
 
-- The English checkpoint is for English text. For other languages, start with `--model multilingual`.
-- The option texts of a question share a token budget, 192 tokens on the English model. With 20+ options, each one gets only a few tokens and accuracy drops. Split large option sets into two questions, a broad one followed by a narrower one.
+- The multilingual checkpoint (the default) reads 100+ languages and handles `choice` questions well: in testing it sent a double-charge complaint to billing in English, Dutch and Hindi, and a German crash report to technical. Its yes/no (`noul`) answers lean strongly towards "no", because it ships without calibration: "refund me or I will cancel" scored 0.04 for "does the user threaten to cancel?", where the English checkpoint scored 0.85. Phrasing the question as a statement ("The customer says they will cancel.") helps somewhat. For English-only yes/no work, including the Pirate Raid autopilot, run `--model english`.
+- The option texts of a question share a token budget: 256 tokens on the multilingual model, 192 on the English one. With 20+ options, each one gets only a few tokens and accuracy drops. Split large option sets into two questions, a broad one followed by a narrower one.
 - Laya's authors describe the base checkpoints as weak zero-shot on complex workflows and recommend fine-tuning for production use. Check `confidence` before acting on an answer automatically.
 - Requests are handled one at a time.
 - Laya's yes/no answers rank situations sensibly, but the 50% line is unreliable: in testing, a calm scene with nobody shooting still scored 0.55 for "in serious danger". Compare answers against each other, or blend them with your own checks, rather than treating 0.5 as a hard cut-off.
