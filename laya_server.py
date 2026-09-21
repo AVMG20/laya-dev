@@ -236,8 +236,8 @@ def main():
     p = argparse.ArgumentParser(description="Serve a Laya checkpoint as a local Jev-compatible API.")
     p.add_argument("--host", default=os.environ.get("LAYA_HOST", "127.0.0.1"))
     p.add_argument("--port", type=int, default=int(os.environ.get("LAYA_PORT", "8000")))
-    p.add_argument("--model", default=os.environ.get("LAYA_MODEL", "multilingual"), choices=list(CHECKPOINTS),
-                   help="which Laya checkpoint to serve (default: multilingual)")
+    p.add_argument("--model", default=os.environ.get("LAYA_MODEL", "english"), choices=list(CHECKPOINTS),
+                   help="which Laya checkpoint to serve (default: english)")
     p.add_argument("--device", default=os.environ.get("LAYA_DEVICE"), help="cuda, mps or cpu (default: auto)")
     p.add_argument("--api-key", default=os.environ.get("LAYA_API_KEY"),
                    help="require 'Authorization: Bearer <key>' (default: no auth)")
