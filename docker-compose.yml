@@ -1,18 +1,18 @@
 services:
-  laya:
+  decider:
     build: .
     restart: unless-stopped
     environment:
       # Required: the API is public once deployed. Clients send `Authorization: Bearer <key>`.
-      LAYA_API_KEY: ${LAYA_API_KEY:?Set LAYA_API_KEY}
-      # english (default), multilingual or typed-decisions
-      LAYA_MODEL: ${LAYA_MODEL:-english}
+      DECIDER_API_KEY: ${DECIDER_API_KEY:?Set DECIDER_API_KEY}
+      # Hub repo of the checkpoint to serve (default Mapika/decider-2b, pinned to a tested commit)
+      DECIDER_MODEL: ${DECIDER_MODEL:-Mapika/decider-2b}
     volumes:
-      - laya-models:/data/huggingface
+      - decider-models:/data/huggingface
     # Coolify's proxy routes the domain to this port; nothing is published on the host.
     # For a local test, add:  ports: ["8000:8000"]
     expose:
       - "8000"
 
 volumes:
-  laya-models:
+  decider-models:

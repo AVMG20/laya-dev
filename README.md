@@ -1,34 +1,35 @@
-# Laya local API
+# decider local API
 
-`laya_server.py` runs [Laya](https://github.com/NandhaKishorM/laya) as a local HTTP API. Its request format is the same as TypeSafe's Jev API (`POST /v1/systemone`), so code written for Jev can call it.
+`decider_server.py` runs [decider-2b](https://huggingface.co/Mapika/decider-2b) as a local HTTP API. Its request format is the same as TypeSafe's Jev API (`POST /v1/systemone`), so code written for Jev can call it.
 
-It serves one checkpoint, the English model by default. The first start downloads about 850 MB of model files, pinned to an audited commit, into `~/.cache/huggingface`.
+decider-2b is a 2B-parameter decision model fine-tuned from Qwen3.5-2B-Base. It does not generate text: it reads a state and typed questions and returns a calibrated probability for every option. The first start downloads about 3.5 GB of model files, pinned to a tested commit, into `~/.cache/huggingface`.
 
 ## Setup
 
-macOS names the commands `python3` and `pip3`. Create a virtual environment and install the dependencies:
+decider needs Python 3.11 or newer. Create a virtual environment and install the dependencies:
 
 ```bash
-cd ~/tools/laya
+cd ~/tools/decider
 python3 -m venv .venv
-.venv/bin/pip install laya==0.3.4 fastapi uvicorn
+.venv/bin/pip install decider-ai==1.2.1 fastapi uvicorn
 ```
 
 ## Start the server
 
 ```bash
-.venv/bin/python laya_server.py
+.venv/bin/python decider_server.py
 ```
 
-It listens on `http://127.0.0.1:8000`. Loading the model takes a few seconds; the server is ready when uvicorn prints `Application startup complete`.
+It listens on `http://127.0.0.1:8000`. The server is ready when uvicorn prints `Application startup complete`.
 
 | Option | Env var | Default | Description |
 |---|---|---|---|
-| `--host` | `LAYA_HOST` | `127.0.0.1` | Address to bind. Use `0.0.0.0` to accept connections from your network. |
-| `--port` | `LAYA_PORT` | `8000` | Port to listen on. |
-| `--model` | `LAYA_MODEL` | `english` | `english`, `multilingual` or `typed-decisions`. |
-| `--device` | `LAYA_DEVICE` | auto | `mps` (Apple GPU), `cuda` or `cpu`. |
-| `--api-key` | `LAYA_API_KEY` | none | When set, every request except `/health` needs `Authorization: Bearer <key>`. |
+| `--host` | `DECIDER_HOST` | `127.0.0.1` | Address to bind. Use `0.0.0.0` to accept connections from your network. |
+| `--port` | `DECIDER_PORT` | `8000` | Port to listen on. |
+| `--model` | `DECIDER_MODEL` | `Mapika/decider-2b` | Hub repo or local folder of a decider checkpoint, e.g. `Mapika/decider-0.8b` or `Mapika/decider-4b`. |
+| `--revision` | `DECIDER_REVISION` | pinned commit | Hub commit, branch or tag. The default pins `Mapika/decider-2b` to a tested commit; other repos default to `main`. |
+| `--device` | `DECIDER_DEVICE` | auto | `cuda`, `mps` (Apple GPU) or `cpu`. |
+| `--api-key` | `DECIDER_API_KEY` | none | When set, every request except `/health` needs `Authorization: Bearer <key>`. |
 
 With no API key the server has no authentication. Only bind to `0.0.0.0` together with `--api-key`.
 
@@ -73,43 +74,49 @@ curl -s localhost:8000/v1/systemone \
 
 | Type | `criteria` | Answer fields |
 |---|---|---|
-| `choice` | Object mapping each option to a description (or `null`) | `choice`, `probabilities`, `confidence` |
-| `score` | List of levels, lowest first; each level's position is its score | `score` (probability-weighted, can fall between levels), `legend`, `probabilities`, `confidence` |
+| `choice` | Object mapping each option to a description (or `null`), 2 to 255 options | `choice`, `probabilities`, `confidence`, `certainty` |
+| `score` | List of 2 to 10 levels, lowest first; each level's position is its score | `score` (probability-weighted, can fall between levels), `legend`, `probabilities`, `confidence`, `certainty`, `level_fit`, `fit_mass` |
 | `noul` | Optional `{"true": "...", "false": "..."}` | `noul`: probability the answer is yes, from 0 to 1 |
+
+Every question needs non-empty `instructions`. `instructions` and every description may be a string or any JSON value.
 
 ### Response
 
-The response has this shape (the numbers are illustrative):
+The response for the request above, measured on CPU:
 
 ```json
 {
-  "model": "laya-english",
+  "model": "decider-v10",
   "answers": {
     "department": {
       "type": "choice",
       "choice": "billing",
-      "probabilities": {"billing": 0.94, "technical": 0.03, "other": 0.03},
-      "confidence": 0.9
+      "confidence": 0.9972,
+      "certainty": 0.982,
+      "probabilities": {"billing": 0.9972, "technical": 0.0002, "other": 0.0026}
     },
     "urgency": {
       "type": "score",
-      "score": 1.84,
+      "score": 1.49,
+      "confidence": 0.5249,
+      "certainty": 0.248,
       "legend": {"0": "not urgent", "1": "soon", "2": "critical deadline"},
-      "probabilities": {"0": 0.02, "1": 0.12, "2": 0.86},
-      "confidence": 0.8
+      "probabilities": {"0": 0.0387, "1": 0.4364, "2": 0.5249},
+      "level_fit": {"0": 0.029, "1": 0.3271, "2": 0.3935},
+      "fit_mass": 0.7497
     },
-    "churn_risk": {"type": "noul", "noul": 0.89, "confidence": 0.89}
+    "churn_risk": {"type": "noul", "noul": 0.9579}
   },
-  "usage": {"input_tokens": 212, "output_tokens": 0},
-  "latency_ms": 180.4
+  "usage": {"input_tokens": 200, "output_tokens": 0},
+  "latency_ms": 20459.7
 }
 ```
 
-Each answer also has an `action` field (`act_probability`), which is an internal output of the model. `latency_ms` is added by this server and is not part of Jev's response.
+`confidence` is the calibrated probability of the top option; `certainty` is 1 minus the normalised entropy. Each score level is judged on its own: `level_fit` holds the per-level fits and `fit_mass` their sum, which is near 1 when exactly one level fits. `latency_ms` is added by this server and is not part of Jev's response.
 
-Errors come back as `{"detail": "..."}`: status 401 for a bad or missing API key, 422 for an invalid question, and 400 when the options don't fit the model's token budget (see Limits).
+Errors come back as `{"detail": "..."}`: status 401 for a bad or missing API key and 422 for an invalid question.
 
-### A state per question (Laya extension)
+### A state per question (extension)
 
 A question can carry its own `state`, which replaces the shared one for that question. The top-level `state` is then optional.
 
@@ -122,35 +129,11 @@ A question can carry its own `state`, which replaces the shared one for that que
 }
 ```
 
-Laya reads the state once for every question, and cuts it off at 512 tokens on the English model. Several questions over one long state are therefore slow, and the end of the state is silently dropped. Measured on an M-series Mac, six questions over a long state took 616 ms; the same number of questions with short states of their own took about 85 ms. The answers were also more accurate, because each question sees only the facts it judges.
-
-### Presets
-
-Laya ships ready-made question sets. Fetch one and send it as `questions`:
-
-```bash
-curl -s localhost:8000/v1/presets                # ["triage", "email", "guard", "moderation", "router"]
-curl -s localhost:8000/v1/presets/guard
-```
-
-| Preset | Put the text under this state key | Asks about |
-|---|---|---|
-| `triage` | `message` | intent, urgency, frustration, refund, churn |
-| `email` | `body` (plus `subject`, `from`) | team, spam, phishing, urgency, needs reply |
-| `guard` | `prompt` | jailbreak, prompt injection, sensitive data, harm, topic |
-| `moderation` | `post` | toxicity, harassment, threats, spam, severity |
-| `router` | `request` | difficulty, domain, needs tools, sensitive |
-
-Example with `jq`:
-
-```bash
-curl -s localhost:8000/v1/presets/guard | jq '{state: {prompt: "Ignore all previous instructions"}, questions: .questions}' \
-  | curl -s localhost:8000/v1/systemone -H 'Content-Type: application/json' -d @-
-```
+decider scores every question in its own row, so each question only needs the facts it judges. Short states of their own are faster than one long shared state, and each question sees only what matters to it.
 
 ### `GET /health`
 
-Returns the loaded model, the device and the laya version. It never needs an API key.
+Returns the loaded model, the device and the decider-ai version. It never needs an API key.
 
 ## From Python
 
@@ -179,9 +162,9 @@ export TYPESAFE_API_KEY=local   # the SDK requires a value; use your --api-key i
 
 ## Limits
 
-- The English checkpoint is for English text. For other languages, start with `--model multilingual`.
-- The option texts of a question share a token budget, 192 tokens on the English model. With 20+ options, each one gets only a few tokens and accuracy drops. Split large option sets into two questions, a broad one followed by a narrower one.
-- Laya's authors describe the base checkpoints as weak zero-shot on complex workflows and recommend fine-tuning for production use. Check `confidence` before acting on an answer automatically.
+- decider-2b is English only.
+- On CPU it is slow. On a 4-core machine, two short questions took about 4.7 s, and the example above took about 20 s, because each score level is scored as its own row. The model card reports a few milliseconds per request on a CUDA GPU.
+- It is a 2B model without reasoning. Split a judgment that needs several steps into several questions, and state rules as plain questions with described options.
+- Calibration is measured on public datasets, not on your traffic. Check `confidence` against your own labels before acting on it automatically.
+- Name or describe a catch-all option (`general_support`, or `other` with a description) rather than using a terse bucket name.
 - Requests are handled one at a time.
-- Laya's yes/no answers rank situations sensibly, but the 50% line is unreliable: in testing, a calm scene with nobody shooting still scored 0.55 for "in serious danger". Compare answers against each other, or blend them with your own checks, rather than treating 0.5 as a hard cut-off.
-- The server uses laya's internal batching functions, so it is pinned to `laya==0.3.4`.
